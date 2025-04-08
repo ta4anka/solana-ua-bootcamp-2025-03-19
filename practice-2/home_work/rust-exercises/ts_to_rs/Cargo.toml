@@ -1,0 +1,22 @@
+[package]
+name = "ts_to_rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+solana-sdk = "2.2.2"
+solana-client = "2.2.2"
+spl-token = { version = "8.0.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "6.0.0", features = [
+    "no-entrypoint",
+] }
+spl-memo = { version = "6.0.0", features = ["no-entrypoint"] }
+mpl-token-metadata = "5.1.0"
+
+dotenvy = "0.15"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+
