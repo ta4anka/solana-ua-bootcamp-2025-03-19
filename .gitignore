@@ -1,7 +1,29 @@
+# Environment and IDE files
 **/.env
-**/node_modules/
 **/.DS_Store
+**/.idea/
+**/.prettierignore
+
+# Backup files (common in Rust development)
+**/*.rs.bk
+
+# Node.js dependencies (both root and nested)
+node_modules/
+**/node_modules/
+
+# Rust build artifacts and lockfiles
 **/target/
 **/debug/
-**/Cargo.lock
-.idea/
+Cargo.lock
+
+# JavaScript/Yarn lockfiles and cache
+yarn.lock
+.yarn/
+
+# Solana Anchor development files
+.anchor/
+test-ledger/
+
+# Build outputs and distributions
+dist/
+build/
