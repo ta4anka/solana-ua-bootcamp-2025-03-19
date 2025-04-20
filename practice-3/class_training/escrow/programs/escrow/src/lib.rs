@@ -1,4 +1,3 @@
-
 pub mod constants;
 pub mod error;
 pub mod instructions;
@@ -32,5 +31,10 @@ pub mod escrow {
         instructions::make_offer::send_offered_tokens_to_vault(&context, token_a_offered_amount)?;
         // Then, save the offer details to the blockchain
         instructions::make_offer::save_offer(context, id, token_b_wanted_amount)
+    }
+
+    pub fn take_offer(context: Context<TakeOffer>) -> Result<()> {
+        instructions::take_offer::send_wanted_tokens_to_maker(&context)?;
+        instructions::take_offer::withdraw_and_close_vault(context)
     }
 }

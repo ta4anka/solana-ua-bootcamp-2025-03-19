@@ -251,8 +251,8 @@ describe("escrow", () => {
 
         return { offerAddress, vaultAddress };
     };
-//----------TEMPORARY DISABLED---START----------
-/*    const takeOfferTx = async (
+
+    const takeOfferTx = async (
         offerAddress: PublicKey,
         taker: Keypair,
     ): Promise<void> => {
@@ -284,9 +284,16 @@ describe("escrow", () => {
             .rpc();
 
         await confirmTransaction(connection, transactionSignature);
-    };*/
-    //----------TEMPORARY DISABLED---END----------
+    };
 
+    /**
+     * Test 1: Offer Creation
+     * This test verifies that when Alice creates an offer:
+     * 1) The correct amount of tokens (10M USDC) is transferred from Alice to the vault
+     * 2) Alice's USDC balance is reduced by the offered amount (from 100M to 90M)
+     * 3) The vault holds the exact amount of tokens offered
+     * 4) The offer account contains the correct data (maker, token mints, wanted amount)
+     */
     test("Offer created by Alice, vault holds the offer tokens", async () => {
         const offeredUsdc = new BN(10_000_000);
         const wantedWif = new BN(100_000_000);
@@ -313,8 +320,17 @@ describe("escrow", () => {
         expect(offerAccount.tokenBWantedAmount).toEqual(wantedWif);
     });
 
-    //----------TEMPORARY DISABLED---START----------
-/*    test("Offer taken by Bob, tokens balances are updated", async () => {
+    /**
+     * Test 2: Offer Acceptance
+     * This test verifies that when Bob takes Alice's offer:
+     * 1) The initial state is correct (Alice has 90M USDC, 5M WIF; Bob has 20M USDC, 300M WIF)
+     * 2) After the offer is taken:
+     *    - Alice's USDC balance remains unchanged (90M)
+     *    - Alice receives the wanted WIF tokens (from 5M to 105M)
+     *    - Bob's USDC balance increases by the offered amount (from 20M to 30M)
+     *    - Bob's WIF balance decreases by the wanted amount (from 300M to 200M)
+     */
+    test("Offer taken by Bob, tokens balances are updated", async () => {
         const getTokenBalance = getTokenBalanceOn(connection);
 
         // This test reuses offer created by the previous test.  Bad design :(
@@ -345,7 +361,6 @@ describe("escrow", () => {
 
         expect(await getTokenBalance(bobUsdcAccount)).toEqual(new BN(30_000_000));
         expect(await getTokenBalance(bobWifAccount)).toEqual(new BN(200_000_000));
-    });*/
-    //----------TEMPORARY DISABLED---END----------
+    });
 
 });
