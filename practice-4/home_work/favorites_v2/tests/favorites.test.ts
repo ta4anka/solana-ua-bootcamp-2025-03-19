@@ -13,7 +13,6 @@ describe("favorites", () => {
     const user = web3.Keypair.generate();
     const program = anchor.workspace.Favorites as Program<Favorites>;
 
-    console.log(`User public key: ${user.publicKey}`);
     await airdropIfRequired(
       anchor.getProvider().connection,
       user.publicKey,
@@ -45,7 +44,6 @@ describe("favorites", () => {
       throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
     }
 
-    console.log(`Tx signature: ${tx}`); // hash of the transaction
     // Calculate the PDA account address that holds the user's favorites
     const [favoritesPda, _favoritesBump] = web3.PublicKey.findProgramAddressSync(
       [Buffer.from("favorites"), user.publicKey.toBuffer()],
@@ -55,5 +53,120 @@ describe("favorites", () => {
     const dataFromPda = await program.account.favorites.fetch(favoritesPda);
     expect(dataFromPda.color).toEqual(favoriteColor);
     expect(dataFromPda.number.toNumber()).toEqual(favoriteNumber.toNumber());
+  });
+
+  it("Updates our favorites on the blockchain", async () => {
+    const user = web3.Keypair.generate();
+    const program = anchor.workspace.Favorites as Program<Favorites>;
+
+    await airdropIfRequired(
+      anchor.getProvider().connection,
+      user.publicKey,
+      0.5 * web3.LAMPORTS_PER_SOL,
+      web3.LAMPORTS_PER_SOL
+    );
+
+    const initialNumber = new anchor.BN(23);
+    const initialColor = "red";
+
+    let tx: string | null = null;
+    try {
+      tx = await program.methods
+        .setFavorites(initialNumber, initialColor)
+        .accounts({
+          user: user.publicKey,
+        })
+        .signers([user])
+        .rpc();
+    } catch (thrownObject) {
+      const rawError = thrownObject as Error;
+      throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
+    }
+
+    const [favoritesPda, _favoritesBump] = web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("favorites"), user.publicKey.toBuffer()],
+      program.programId
+    );
+
+    let dataFromPda = await program.account.favorites.fetch(favoritesPda);
+    expect(dataFromPda.color).toEqual(initialColor);
+    expect(dataFromPda.number.toNumber()).toEqual(initialNumber.toNumber());
+
+    const newNumber = new anchor.BN(42);
+    const newColor = "blue";
+
+    try {
+      tx = await program.methods
+        .updateFavorites(newNumber, newColor)
+        .accounts({
+          user: user.publicKey,
+        })
+        .signers([user])
+        .rpc();
+    } catch (thrownObject) {
+      const rawError = thrownObject as Error;
+      throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
+    }
+
+    dataFromPda = await program.account.favorites.fetch(favoritesPda);
+    expect(dataFromPda.color).toEqual(newColor);
+    expect(dataFromPda.number.toNumber()).toEqual(newNumber.toNumber());
+  });
+
+  it("Updates only one favorite value", async () => {
+    const user = web3.Keypair.generate();
+    const program = anchor.workspace.Favorites as Program<Favorites>;
+
+    await airdropIfRequired(
+      anchor.getProvider().connection,
+      user.publicKey,
+      0.5 * web3.LAMPORTS_PER_SOL,
+      web3.LAMPORTS_PER_SOL
+    );
+
+    const initialNumber = new anchor.BN(23);
+    const initialColor = "red";
+
+    let tx: string | null = null;
+    try {
+      tx = await program.methods
+        .setFavorites(initialNumber, initialColor)
+        .accounts({
+          user: user.publicKey,
+        })
+        .signers([user])
+        .rpc();
+    } catch (thrownObject) {
+      const rawError = thrownObject as Error;
+      throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
+    }
+
+    const [favoritesPda, _favoritesBump] = web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("favorites"), user.publicKey.toBuffer()],
+      program.programId
+    );
+
+    let dataFromPda = await program.account.favorites.fetch(favoritesPda);
+    expect(dataFromPda.color).toEqual(initialColor);
+    expect(dataFromPda.number.toNumber()).toEqual(initialNumber.toNumber());
+
+    const newNumber = new anchor.BN(42);
+    
+    try {
+      tx = await program.methods
+        .updateFavorites(newNumber, null)
+        .accounts({
+          user: user.publicKey,
+        })
+        .signers([user])
+        .rpc();
+    } catch (thrownObject) {
+      const rawError = thrownObject as Error;
+      throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
+    }
+
+    dataFromPda = await program.account.favorites.fetch(favoritesPda);
+    expect(dataFromPda.color).toEqual(initialColor);
+    expect(dataFromPda.number.toNumber()).toEqual(newNumber.toNumber());
   });
 });
