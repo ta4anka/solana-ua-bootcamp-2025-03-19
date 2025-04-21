@@ -5,7 +5,7 @@ import { Escrow } from "../target/types/escrow";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction, TransactionInstruction, } from "@solana/web3.js";
 import {
     MINT_SIZE, TOKEN_2022_PROGRAM_ID, type TOKEN_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction,
-    createMintToInstruction, getAssociatedTokenAddressSync, getMinimumBalanceForRentExemptMint
+    createMintToInstruction, getAssociatedTokenAddressSync, getMinimumBalanceForRentExemptMint, ASSOCIATED_TOKEN_PROGRAM_ID
 } from "@solana/spl-token";
 import { randomBytes } from "crypto";
 import { confirmTransaction, makeKeypairs } from "@solana-developers/helpers";
@@ -93,9 +93,9 @@ const getTokenBalanceOn = (
 ) => async (
     tokenAccountAddress: PublicKey,
 ): Promise<BN> => {
-    const tokenBalance = await connection.getTokenAccountBalance(tokenAccountAddress);
-    return new BN(tokenBalance.value.amount);
-};
+        const tokenBalance = await connection.getTokenAccountBalance(tokenAccountAddress);
+        return new BN(tokenBalance.value.amount);
+    };
 
 // Jest debug console it too verbose.
 // const jestConsole = console;
@@ -210,28 +210,13 @@ describe("escrow", () => {
                 maker: maker.publicKey,
                 tokenMintA: offeredTokenMint,
                 tokenMintB: wantedTokenMint,
-                // As the `token_program` account is specified as
-                //
-                //   pub token_program: Interface<'info, TokenInterface>,
-                //
-                // the client library needs us to provide the specific program address
-                // explicitly.
-                //
-                // This is unlike the `associated_token_program` or the `system_program`
-                // account addresses, that are specified in the program IDL, as they are
-                // expected to reference the same programs for all the `makeOffer`
-                // invocations.
+
                 tokenProgram: TOKEN_PROGRAM,
             })
             .signers([maker])
             .rpc();
 
         await confirmTransaction(connection, transactionSignature);
-
-        // Both `offer` address and the `vault` address accounts are computed based
-        // on the other provided account addresses, and so we do not need to provide
-        // them explicitly in the `makeOffer()` account call above.  But we compute
-        // them here and return for convenience.
 
         const [offerAddress, _offerBump] = PublicKey.findProgramAddressSync(
             [
@@ -257,27 +242,11 @@ describe("escrow", () => {
         taker: Keypair,
     ): Promise<void> => {
 
-        // `accounts` argument debugging tool.  Should be part of Anchor really.
-        //
-        // type FlatType<T> = T extends object
-        //   ? { [K in keyof T]: FlatType<T[K]> }
-        //   : T;
-        //
-        // type AccountsArgs = FlatType<
-        //   Parameters<
-        //     ReturnType<
-        //       Program<Escrow>["methods"]["takeOffer"]
-        //     >["accounts"]
-        //   >
-        // >;
-
         const transactionSignature = await program.methods
             .takeOffer()
             .accounts({
                 taker: taker.publicKey,
                 offer: offerAddress,
-                // See note in the `makeOfferTx` on why this program address is provided
-                // and the rest are not.
                 tokenProgram: TOKEN_PROGRAM,
             })
             .signers([taker])
@@ -286,14 +255,45 @@ describe("escrow", () => {
         await confirmTransaction(connection, transactionSignature);
     };
 
-    /**
-     * Test 1: Offer Creation
-     * This test verifies that when Alice creates an offer:
-     * 1) The correct amount of tokens (10M USDC) is transferred from Alice to the vault
-     * 2) Alice's USDC balance is reduced by the offered amount (from 100M to 90M)
-     * 3) The vault holds the exact amount of tokens offered
-     * 4) The offer account contains the correct data (maker, token mints, wanted amount)
-     */
+    const closeOfferTx = async (
+        maker: Keypair,
+        offerAddress: PublicKey,
+        offeredTokenMint: PublicKey,
+    ): Promise<void> => {
+        const makerTokenAccountA = getAssociatedTokenAddressSync(
+            offeredTokenMint,
+            maker.publicKey,
+            false,
+            TOKEN_PROGRAM
+        );
+
+        const vaultAddress = getAssociatedTokenAddressSync(
+            offeredTokenMint,
+            offerAddress,
+            true,
+            TOKEN_PROGRAM
+        );
+
+
+        const transactionSignature = await program.methods
+            .closeOffer()
+            .accounts({
+                maker: maker.publicKey,
+                offer: offerAddress,
+                vault: vaultAddress,
+                tokenMintA: offeredTokenMint,
+                makerTokenAccountA,
+                associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+                tokenProgram: TOKEN_PROGRAM,
+                systemProgram: SystemProgram.programId,
+            } as any)
+            .signers([maker])
+            .rpc();
+
+        await confirmTransaction(connection, transactionSignature);
+    };
+
+
     test("Offer created by Alice, vault holds the offer tokens", async () => {
         const offeredUsdc = new BN(10_000_000);
         const wantedWif = new BN(100_000_000);
@@ -320,23 +320,8 @@ describe("escrow", () => {
         expect(offerAccount.tokenBWantedAmount).toEqual(wantedWif);
     });
 
-    /**
-     * Test 2: Offer Acceptance
-     * This test verifies that when Bob takes Alice's offer:
-     * 1) The initial state is correct (Alice has 90M USDC, 5M WIF; Bob has 20M USDC, 300M WIF)
-     * 2) After the offer is taken:
-     *    - Alice's USDC balance remains unchanged (90M)
-     *    - Alice receives the wanted WIF tokens (from 5M to 105M)
-     *    - Bob's USDC balance increases by the offered amount (from 20M to 30M)
-     *    - Bob's WIF balance decreases by the wanted amount (from 300M to 200M)
-     */
     test("Offer taken by Bob, tokens balances are updated", async () => {
         const getTokenBalance = getTokenBalanceOn(connection);
-
-        // This test reuses offer created by the previous test.  Bad design :(
-        // But it is a shortcut that allows us to avoid writing the cleanup code.
-        // TODO Add proper cleanup, that mirrors `beforeEach`, and create a new
-        // offer here.
 
         const [offerAddress, _offerBump] = PublicKey.findProgramAddressSync(
             [
@@ -361,6 +346,73 @@ describe("escrow", () => {
 
         expect(await getTokenBalance(bobUsdcAccount)).toEqual(new BN(30_000_000));
         expect(await getTokenBalance(bobWifAccount)).toEqual(new BN(200_000_000));
+    });
+
+    test("Alice makes an offer, then closes it", async () => {
+        const offeredAmount = new BN(1_000_000);
+        const wantedAmount = new BN(2_000_000);
+
+        // Get initial balances
+        const getAliceUsdcBalance = getTokenBalanceOn(connection)(aliceUsdcAccount);
+        const initialAliceUsdcBalance = await getAliceUsdcBalance;
+
+        // Make the offer
+        const { offerAddress, vaultAddress } = await makeOfferTx(
+            alice,
+            offerId,
+            usdcMint.publicKey,
+            offeredAmount,
+            wifMint.publicKey,
+            wantedAmount
+        );
+
+        // Verify tokens are in vault
+        const getVaultBalance = getTokenBalanceOn(connection)(vaultAddress);
+        const vaultBalance = await getVaultBalance;
+        expect(vaultBalance).toEqual(offeredAmount);
+
+        // Close the offer
+        await closeOfferTx(
+            alice,
+            offerAddress,
+            usdcMint.publicKey
+        );
+
+        // Verify tokens are back with Alice
+        const finalAliceUsdcBalance = await getAliceUsdcBalance;
+        expect(finalAliceUsdcBalance).toEqual(initialAliceUsdcBalance);
+
+        // Verify offer account is closed
+        const offerAccount = await connection.getAccountInfo(offerAddress);
+        expect(offerAccount).toBeNull();
+
+        // Verify vault account is closed
+        const vaultAccount = await connection.getAccountInfo(vaultAddress);
+        expect(vaultAccount).toBeNull();
+    });
+
+    test("Bob cannot close Alice's offer", async () => {
+        const offeredAmount = new BN(1_000_000);
+        const wantedAmount = new BN(2_000_000);
+
+        // Make the offer
+        const { offerAddress } = await makeOfferTx(
+            alice,
+            offerId,
+            usdcMint.publicKey,
+            offeredAmount,
+            wifMint.publicKey,
+            wantedAmount
+        );
+
+        // Try to close with Bob (should fail)
+        await expect(
+            closeOfferTx(
+                bob,
+                offerAddress,
+                usdcMint.publicKey
+            )
+        ).rejects.toThrow();
     });
 
 });
