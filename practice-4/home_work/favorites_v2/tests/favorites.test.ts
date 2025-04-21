@@ -100,6 +100,7 @@ describe("favorites", () => {
         .updateFavorites(newNumber, newColor)
         .accounts({
           user: user.publicKey,
+          owner: user.publicKey,
         })
         .signers([user])
         .rpc();
@@ -157,6 +158,7 @@ describe("favorites", () => {
         .updateFavorites(newNumber, null)
         .accounts({
           user: user.publicKey,
+          owner: user.publicKey,
         })
         .signers([user])
         .rpc();
@@ -167,6 +169,76 @@ describe("favorites", () => {
 
     dataFromPda = await program.account.favorites.fetch(favoritesPda);
     expect(dataFromPda.color).toEqual(initialColor);
+    expect(dataFromPda.number.toNumber()).toEqual(newNumber.toNumber());
+  });
+
+  it("Updates favorites through delegated authority", async () => {
+    const owner = web3.Keypair.generate();
+    const delegate = web3.Keypair.generate();
+    const program = anchor.workspace.Favorites as Program<Favorites>;
+
+    // Airdrop SOL to both accounts
+    await airdropIfRequired(
+      anchor.getProvider().connection,
+      owner.publicKey,
+      0.5 * web3.LAMPORTS_PER_SOL,
+      web3.LAMPORTS_PER_SOL
+    );
+    await airdropIfRequired(
+      anchor.getProvider().connection,
+      delegate.publicKey,
+      0.5 * web3.LAMPORTS_PER_SOL,
+      web3.LAMPORTS_PER_SOL
+    );
+
+    const initialNumber = new anchor.BN(23);
+    const initialColor = "red";
+
+    // Create account with initial values and delegate
+    let tx: string | null = null;
+    try {
+      tx = await program.methods
+        .setFavoritesWithAuthority(initialNumber, initialColor, delegate.publicKey)
+        .accounts({
+          user: owner.publicKey,
+        })
+        .signers([owner])
+        .rpc();
+    } catch (thrownObject) {
+      const rawError = thrownObject as Error;
+      throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
+    }
+
+    const [favoritesPda, _favoritesBump] = web3.PublicKey.findProgramAddressSync(
+      [Buffer.from("favorites"), owner.publicKey.toBuffer()],
+      program.programId
+    );
+
+    let dataFromPda = await program.account.favorites.fetch(favoritesPda);
+    expect(dataFromPda.color).toEqual(initialColor);
+    expect(dataFromPda.number.toNumber()).toEqual(initialNumber.toNumber());
+    expect(dataFromPda.authority?.toBase58()).toEqual(delegate.publicKey.toBase58());
+
+    // Update through delegate
+    const newNumber = new anchor.BN(42);
+    const newColor = "blue";
+
+    try {
+      tx = await program.methods
+        .updateFavorites(newNumber, newColor)
+        .accounts({
+          user: delegate.publicKey,
+          owner: owner.publicKey,
+        })
+        .signers([delegate])
+        .rpc();
+    } catch (thrownObject) {
+      const rawError = thrownObject as Error;
+      throw new Error(getCustomErrorMessage(systemProgramErrors, rawError.message));
+    }
+
+    dataFromPda = await program.account.favorites.fetch(favoritesPda);
+    expect(dataFromPda.color).toEqual(newColor);
     expect(dataFromPda.number.toNumber()).toEqual(newNumber.toNumber());
   });
 });
